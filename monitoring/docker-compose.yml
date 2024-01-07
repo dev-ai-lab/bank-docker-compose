@@ -1,0 +1,186 @@
+version: "3.8"
+
+services:
+
+  grafana:
+    image: "grafana/grafana:latest"
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=password
+    networks:
+      - bank
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - bank
+
+  zipkin:
+    image: openzipkin/zipkin
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+    ports:
+      - "9411:9411"
+    networks:
+      - bank
+
+  config-server:
+    image: dockerxya/config-server:latest
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+    ports:
+      - "8071:8071"
+    networks:
+      - bank
+    depends_on:
+      - zipkin
+    environment:
+      SPRING_PROFILES_ACTIVE: default
+      # SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+
+  eureka-server:
+    image: dockerxya/eureka-server:latest
+    ports:
+      - "8070:8070"
+    networks:
+      - bank
+    depends_on:
+      - config-server
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+        window: 120s
+    environment:
+      SPRING_APPLICATION_NAME: eureka-server
+      SPRING_PROFILES_ACTIVE: default
+      SPRING_CONFIG_IMPORT: configserver:http://config-server:8071/
+      # SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+
+  bank-accounts:
+    image: dockerxya/bank-accounts:latest
+    ports:
+      - "8080:8080"
+    networks:
+      - bank
+    depends_on:
+      - config-server
+      - eureka-server
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+        window: 120s
+    environment:
+      SPRING_APPLICATION_NAME: bank-accounts
+      SPRING_PROFILES_ACTIVE: default
+      SPRING_CONFIG_IMPORT: configserver:http://config-server:8071/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8070/eureka/
+      # SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+  
+  bank-loans:
+    image: dockerxya/bank-loans:latest
+    ports:
+      - "8090:8090"
+    networks:
+      - bank
+    depends_on:
+      - config-server
+      - eureka-server
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+        window: 120s
+    environment:
+      SPRING_APPLICATION_NAME: bank-loans
+      SPRING_PROFILES_ACTIVE: default
+      SPRING_CONFIG_IMPORT: configserver:http://config-server:8071/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8070/eureka/
+      # SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+
+  bank-cards:
+    image: dockerxya/bank-cards:latest
+    ports:
+      - "9000:9000"
+    networks:
+      - bank
+    depends_on:
+      - config-server
+      - eureka-server
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+        window: 120s
+    environment:
+      SPRING_APPLICATION_NAME: bank-cards
+      SPRING_PROFILES_ACTIVE: default
+      SPRING_CONFIG_IMPORT: configserver:http://config-server:8071/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8070/eureka/
+      # SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+
+  gateway-server:
+    image: dockerxya/gateway-server:latest
+    ports:
+      - "8072:8072"
+    networks:
+      - bank
+    depends_on:
+      - config-server
+      - eureka-server
+      - bank-cards
+      - bank-loans
+      - bank-accounts
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+      restart_policy:
+        condition: on-failure
+        delay: 45s
+        max_attempts: 3
+        window: 180s
+    environment:
+      SPRING_APPLICATION_NAME: gateway-server
+      SPRING_PROFILES_ACTIVE: default
+      SPRING_CONFIG_IMPORT: configserver:http://config-server:8071/
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8070/eureka/
+      # SPRING_ZIPKIN_BASEURL: http://zipkin:9411/
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+
+networks:
+  bank:
